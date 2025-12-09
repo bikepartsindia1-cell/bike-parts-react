@@ -1,0 +1,104 @@
+{
+  "Royal Enfield": [
+    "Classic 350 (Reborn)",
+    "Classic 350 (Old UCE)",
+    "Bullet 350 (Standard/ES)",
+    "Himalayan 411",
+    "Himalayan 450 (New)",
+    "Meteor 350",
+    "Hunter 350",
+    "Interceptor 650",
+    "Continental GT 650",
+    "Super Meteor 650",
+    "Thunderbird 350/500"
+  ],
+  "Bajaj": [
+    "Pulsar 150",
+    "Pulsar 125",
+    "Pulsar NS200",
+    "Pulsar NS160",
+    "Pulsar RS200",
+    "Pulsar N160",
+    "Pulsar N250",
+    "Dominar 400",
+    "Dominar 250",
+    "Avenger 220 Cruise/Street",
+    "Avenger 160 Street",
+    "Platina 100/110",
+    "CT 100"
+  ],
+  "Hero MotoCorp": [
+    "Splendor Plus",
+    "Splendor Pro",
+    "Super Splendor",
+    "HF Deluxe",
+    "Passion Pro",
+    "Glamour",
+    "Xpulse 200 4V",
+    "Xpulse 200 2V",
+    "Xtreme 160R",
+    "Karizma XMR",
+    "Pleasure Plus (Scooter)",
+    "Maestro Edge (Scooter)"
+  ],
+  "TVS": [
+    "Apache RTR 160 2V",
+    "Apache RTR 160 4V",
+    "Apache RTR 200 4V",
+    "Apache RR 310",
+    "Raider 125",
+    "Ronin",
+    "Jupiter (Scooter)",
+    "Ntorq 125 (Scooter)",
+    "Sport",
+    "Star City Plus"
+  ],
+  "Honda": [
+    "Activa 6G (Scooter)",
+    "Activa 125 (Scooter)",
+    "Dio (Scooter)",
+    "CB Shine 125",
+    "SP 125",
+    "Unicorn 160",
+    "Hornet 2.0",
+    "CB350 H'ness",
+    "CB350 RS",
+    "CBR 250R"
+  ],
+  "Yamaha": [
+    "YZF R15 V4",
+    "YZF R15 V3",
+    "MT-15",
+    "FZ-S V3/V4",
+    "FZ 25",
+    "Aerox 155 (Scooter)",
+    "Fascino 125 (Scooter)",
+    "RayZR (Scooter)"
+  ],
+  "KTM": [
+    "Duke 390",
+    "Duke 250",
+    "Duke 200",
+    "Duke 125",
+    "RC 390",
+    "RC 200",
+    "RC 125",
+    "Adventure 390",
+    "Adventure 250"
+  ],
+  "Suzuki": [
+    "Access 125 (Scooter)",
+    "Burgman Street (Scooter)",
+    "Gixxer SF 250",
+    "Gixxer 150",
+    "V-Strom SX 250"
+  ],
+  "Jawa / Yezdi": [
+    "Jawa 42",
+    "Jawa Perak",
+    "Jawa 42 Bobber",
+    "Yezdi Roadster",
+    "Yezdi Scrambler",
+    "Yezdi Adventure"
+  ]
+}
