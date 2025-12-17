@@ -6,14 +6,14 @@ import { useCart } from '../context/CartContext';
 import AuthModal from './AuthModal';
 
 const Navbar = () => {
-    const { user, signOut, isAuthModalOpen, authView, openAuthModal, closeAuthModal } = useAuth();
+    const { user, signOut, isAuthModalOpen, authView, openAuthModal, closeAuthModal, isAdmin } = useAuth();
     const { getCartCount } = useCart();
     const navigate = useNavigate();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-    // Check if user is admin
-    const isAdmin = user?.email === 'bikepartsindia1@gmail.com' || user?.email === 'admin@bikeparts.com';
+    // Use centralized admin check from AuthContext
+    const userIsAdmin = isAdmin();
 
     return (
         <>
@@ -21,10 +21,18 @@ const Navbar = () => {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center">
-                            <Link to="/" className="flex-shrink-0">
-                                <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-500 to-slate-600 bg-clip-text text-transparent">
-                                    BikeParts India
-                                </h1>
+                            <Link to="/" className="flex-shrink-0 flex items-center space-x-3">
+                                <img 
+                                    src="/logo.png" 
+                                    alt="BikeParts India Logo" 
+                                    className="w-10 h-10 hover:scale-110 transition-transform duration-300"
+                                />
+                                <div>
+                                    <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-500 to-slate-600 bg-clip-text text-transparent">
+                                        BikeParts India
+                                    </h1>
+                                    <p className="text-xs text-gray-500 -mt-1">Premium Motorcycle Parts</p>
+                                </div>
                             </Link>
                         </div>
 
@@ -39,7 +47,7 @@ const Navbar = () => {
 
                         <div className="flex items-center space-x-4">
                             {/* Admin Dashboard Button - Only visible for admin users */}
-                            {isAdmin && (
+                            {userIsAdmin && (
                                 <button
                                     onClick={() => navigate('/admin')}
                                     className="hidden md:flex items-center space-x-2 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-md hover:shadow-lg"
@@ -72,7 +80,7 @@ const Navbar = () => {
                                                 >
                                                     My Account
                                                 </Link>
-                                                {isAdmin && (
+                                                {userIsAdmin && (
                                                     <Link
                                                         to="/admin"
                                                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors md:hidden"
@@ -136,7 +144,7 @@ const Navbar = () => {
                             <Link to="/products" className="block px-3 py-2 text-gray-600 hover:text-amber-500">Products</Link>
                             <Link to="/cart" className="block px-3 py-2 text-gray-600 hover:text-amber-500">Cart</Link>
                             <Link to="/account" className="block px-3 py-2 text-gray-600 hover:text-amber-500">Account</Link>
-                            {isAdmin && (
+                            {userIsAdmin && (
                                 <Link to="/admin" className="block px-3 py-2 text-purple-600 hover:text-purple-700 font-medium">
                                     <LayoutDashboard className="w-4 h-4 inline mr-2" />
                                     Admin Dashboard

@@ -19,14 +19,21 @@ export const ProductProvider = ({ children }) => {
         fetchProducts();
     }, []);
 
+
+
     const fetchProducts = async () => {
         try {
             setLoading(true);
             
-            // Fetch from Supabase database
+            // Fetch products with their review statistics using a JOIN query
             const { data, error } = await supabase
                 .from('products')
-                .select('*')
+                .select(`
+                    *,
+                    reviews (
+                        rating
+                    )
+                `)
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -34,18 +41,41 @@ export const ProductProvider = ({ children }) => {
                 throw error;
             }
 
-            // Map DB columns to state structure
-            const mappedProducts = data.map(p => ({
-                ...p,
-                image: p.image_url,
-                inStock: p.stock_quantity,
-                originalPrice: p.original_price
-            }));
+            // Map DB columns to state structure and calculate dynamic ratings
+            const mappedProducts = data.map(p => {
+                // Calculate dynamic rating from reviews
+                const reviewRatings = p.reviews || [];
+                let dynamicRating = 0;
+                let reviewCount = reviewRatings.length;
+
+                if (reviewCount > 0) {
+                    const totalRating = reviewRatings.reduce((sum, review) => sum + review.rating, 0);
+                    dynamicRating = Math.round((totalRating / reviewCount) * 10) / 10; // Round to 1 decimal
+                }
+
+                return {
+                    id: p.id,
+                    name: p.name || 'Unnamed Product',
+                    brand: p.brand || 'Unknown Brand',
+                    category: p.category || 'Uncategorized',
+                    price: p.price || 0,
+                    originalPrice: p.original_price || p.price,
+                    image: p.image_url || 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=500',
+                    description: p.description || '',
+                    compatibility: p.compatibility || [],
+                    inStock: p.stock_quantity || 0,
+                    // Use dynamic rating from reviews, fallback to 0 if no reviews
+                    rating: dynamicRating,
+                    reviews: reviewCount,
+                    created_at: p.created_at
+                };
+            });
             
             setProducts(mappedProducts);
             localStorage.setItem('bikeparts_products', JSON.stringify(mappedProducts));
         } catch (error) {
             console.error('Error fetching products:', error);
+            
             // Try to load from localStorage as fallback
             const localProducts = localStorage.getItem('bikeparts_products');
             if (localProducts) {
@@ -71,8 +101,8 @@ export const ProductProvider = ({ children }) => {
                 description: newProduct.description || '',
                 compatibility: Array.isArray(newProduct.compatibility) ? newProduct.compatibility : [],
                 stock_quantity: parseInt(newProduct.inStock) || 0,
-                rating: parseFloat(newProduct.rating) || 4.5,
-                reviews: parseInt(newProduct.reviews) || 0
+                rating: 0, // Will be calculated from reviews
+                reviews: 0 // Will be calculated from reviews
             };
 
             console.log('Sending to Supabase:', productData);
@@ -90,20 +120,10 @@ export const ProductProvider = ({ children }) => {
 
             console.log('Product saved to Supabase:', data);
 
-            // Map back for local state
-            const newProductState = {
-                ...data,
-                image: data.image_url,
-                inStock: data.stock_quantity,
-                originalPrice: data.original_price
-            };
+            // Refresh all products from database to ensure consistency
+            await fetchProducts();
 
-            // Update local state and cache
-            const updatedProducts = [newProductState, ...products];
-            setProducts(updatedProducts);
-            localStorage.setItem('bikeparts_products', JSON.stringify(updatedProducts));
-
-            return { success: true, product: newProductState };
+            return { success: true, product: data };
         } catch (error) {
             console.error('Error adding product:', error);
             const errorMessage = error.message || 'Unknown error';
@@ -124,8 +144,8 @@ export const ProductProvider = ({ children }) => {
                 description: updatedData.description,
                 compatibility: Array.isArray(updatedData.compatibility) ? updatedData.compatibility : [],
                 stock_quantity: parseInt(updatedData.inStock),
-                rating: parseFloat(updatedData.rating) || 4.5,
-                reviews: parseInt(updatedData.reviews) || 0
+                rating: 0, // Will be calculated from reviews
+                reviews: 0 // Will be calculated from reviews
             };
 
             const { error } = await supabase
@@ -135,18 +155,8 @@ export const ProductProvider = ({ children }) => {
 
             if (error) throw error;
 
-            // Update local state with mapped data
-            const updatedProducts = products.map(p =>
-                p.id === id ? { 
-                    ...p, 
-                    ...updatedData,
-                    image: updatedData.image,
-                    inStock: parseInt(updatedData.inStock),
-                    originalPrice: updatedData.originalPrice || updatedData.price
-                } : p
-            );
-            setProducts(updatedProducts);
-            localStorage.setItem('bikeparts_products', JSON.stringify(updatedProducts));
+            // Refresh all products from database to ensure consistency
+            await fetchProducts();
             
             return { success: true };
         } catch (error) {
@@ -164,10 +174,8 @@ export const ProductProvider = ({ children }) => {
 
             if (error) throw error;
 
-            // Update local state
-            const updatedProducts = products.filter(p => p.id !== id);
-            setProducts(updatedProducts);
-            localStorage.setItem('bikeparts_products', JSON.stringify(updatedProducts));
+            // Refresh all products from database to ensure consistency
+            await fetchProducts();
             
             return { success: true };
         } catch (error) {

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useProducts } from '../context/ProductContext';
 import ProductCard from '../components/ProductCard';
 import ProductFilters from '../components/ProductFilters';
-import { Search, Grid, List, Filter } from 'lucide-react';
+import { Search, Filter } from 'lucide-react';
 
 const Products = () => {
-    const { products, loading } = useProducts();
-    const [view, setView] = useState('grid');
+    const { products, loading, refreshProducts } = useProducts();
+    const location = useLocation();
     const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState('name');
@@ -18,17 +19,66 @@ const Products = () => {
         inStock: false
     });
 
+    // Calculate dynamic price range based on products
+    const maxPrice = useMemo(() => {
+        if (products.length === 0) return 10000;
+        const prices = products.map(p => parseFloat(p.price) || 0);
+        return Math.max(...prices, 10000);
+    }, [products]);
+
     const [priceRange, setPriceRange] = useState([0, 10000]);
 
-    // Handle URL params on mount
+    // Update price range when products change
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
+        setPriceRange([0, maxPrice]);
+    }, [maxPrice]);
+
+
+
+    // Basic safety checks - but don't return early to avoid hook issues
+    const isLoading = loading;
+    const hasProducts = products && products.length > 0;
+
+    // Handle URL params and scroll to top when location changes
+    useEffect(() => {
+        // Scroll to top when navigating to this page
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        
+        const params = new URLSearchParams(location.search);
         const category = params.get('category');
         const brand = params.get('brand');
 
-        if (category) setFilters(prev => ({ ...prev, category: [category] }));
-        if (brand) setFilters(prev => ({ ...prev, brand: [brand] }));
-    }, []);
+        // Reset filters first
+        setFilters({
+            brand: [],
+            category: [],
+            rating: [],
+            inStock: false
+        });
+
+        // Then apply URL filters
+        if (category) {
+            setFilters(prev => ({ ...prev, category: [category] }));
+        }
+        if (brand) {
+            setFilters(prev => ({ ...prev, brand: [brand] }));
+        }
+    }, [location.search]);
+
+    // Update URL when filters change
+    useEffect(() => {
+        const params = new URLSearchParams();
+        
+        if (filters.category && filters.category.length > 0) {
+            params.set('category', filters.category[0]);
+        }
+        if (filters.brand && filters.brand.length > 0) {
+            params.set('brand', filters.brand[0]);
+        }
+        
+        const newUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+    }, [filters.category, filters.brand]);
 
     const filteredProducts = useMemo(() => {
         return products.filter(product => {
@@ -44,8 +94,9 @@ const Products = () => {
             // Category
             if (filters.category.length > 0 && !filters.category.includes(product.category)) return false;
 
-            // Price
-            if (product.price < priceRange[0] || product.price > priceRange[1]) return false;
+            // Price - check if price is valid
+            const productPrice = parseFloat(product.price) || 0;
+            if (productPrice < priceRange[0] || productPrice > priceRange[1]) return false;
 
             // Stock
             if (filters.inStock && product.inStock <= 0) return false;
@@ -68,28 +119,11 @@ const Products = () => {
                     product.brand === 'Universal';
 
                 if (!isCompatible) return false;
-            } else if (filters.bikeMake) {
-                // If only Make is selected, check if product is compatible with any model of that make
-                // This is a bit complex without a full map, so for now we might skip or 
-                // check if any of the compatible models start with the Make name (if naming convention holds)
-                // Or better, just rely on Model filter for precision. 
-                // Let's filter by Make if the product brand matches the bike make (OEM parts) 
-                // OR if it's compatible with any model of that make.
-
-                // For simplicity in this iteration:
-                // If product brand matches bike make, show it.
-                // If product is Universal, show it.
-                // If product compatibility list contains any string that includes the Make name.
-
-                const isCompatible = product.brand === filters.bikeMake ||
-                    product.brand === 'Universal' ||
-                    (product.compatibility && product.compatibility.some(c => c.includes(filters.bikeMake)));
-
-                if (!isCompatible) return false;
             }
 
             return true;
-        }).sort((a, b) => {
+        })
+        .sort((a, b) => {
             switch (sortBy) {
                 case 'price-low': return a.price - b.price;
                 case 'price-high': return b.price - a.price;
@@ -107,17 +141,39 @@ const Products = () => {
             rating: [],
             inStock: false
         });
-        setPriceRange([0, 10000]);
+        setPriceRange([0, maxPrice]);
         setSearchQuery('');
     };
+
+    // Show loading state
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500 mx-auto mb-4"></div>
+                    <p>Loading products...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="bg-gray-50 min-h-screen py-8">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 {/* Header */}
                 <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-4">Our Products</h1>
-                    <p className="text-gray-600">Discover our comprehensive collection of motorcycle parts and accessories.</p>
+                    <h1 className="text-3xl font-bold text-gray-900 mb-4">
+                        {filters.category && filters.category.length > 0 
+                            ? `${filters.category[0]} Products` 
+                            : 'Our Products'
+                        }
+                    </h1>
+                    <p className="text-gray-600">
+                        {filters.category && filters.category.length > 0 
+                            ? `Browse our selection of ${filters.category[0].toLowerCase()} for your motorcycle.`
+                            : 'Discover our comprehensive collection of motorcycle parts and accessories.'
+                        }
+                    </p>
                 </div>
 
                 {/* Controls Bar */}
@@ -155,22 +211,6 @@ const Products = () => {
                             <option value="rating">Rating</option>
                             <option value="newest">Newest</option>
                         </select>
-
-                        {/* View Toggle */}
-                        <div className="flex bg-gray-100 rounded-lg p-1">
-                            <button
-                                onClick={() => setView('grid')}
-                                className={`p-2 rounded-md transition-colors ${view === 'grid' ? 'bg-white shadow-sm text-amber-600' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                <Grid className="w-5 h-5" />
-                            </button>
-                            <button
-                                onClick={() => setView('list')}
-                                className={`p-2 rounded-md transition-colors ${view === 'list' ? 'bg-white shadow-sm text-amber-600' : 'text-gray-500 hover:text-gray-700'}`}
-                            >
-                                <List className="w-5 h-5" />
-                            </button>
-                        </div>
                     </div>
                 </div>
 
@@ -184,12 +224,35 @@ const Products = () => {
                         clearFilters={clearFilters}
                         isOpen={isMobileFiltersOpen}
                         onClose={() => setIsMobileFiltersOpen(false)}
+                        maxPrice={maxPrice}
                     />
 
                     {/* Product Grid */}
                     <div className="flex-1">
-                        {loading ? (
-                            <div className="text-center py-12">Loading products...</div>
+
+
+                        {!hasProducts ? (
+                            <div className="text-center py-12 bg-white rounded-xl shadow-sm">
+                                <div className="text-gray-300 text-6xl mb-4">📦</div>
+                                <h3 className="text-xl font-semibold text-gray-600 mb-2">No products available</h3>
+                                <p className="text-gray-500 mb-6">
+                                    Products will appear here once they are added to the store.
+                                </p>
+                                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                    <button
+                                        onClick={refreshProducts}
+                                        className="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
+                                    >
+                                        🔄 Refresh Products
+                                    </button>
+                                    <Link
+                                        to="/admin"
+                                        className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
+                                    >
+                                        ➕ Add Products
+                                    </Link>
+                                </div>
+                            </div>
                         ) : filteredProducts.length === 0 ? (
                             <div className="text-center py-12 bg-white rounded-xl shadow-sm">
                                 <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -203,7 +266,7 @@ const Products = () => {
                                 </button>
                             </div>
                         ) : (
-                            <div className={view === 'grid' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" : "space-y-4"}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 {filteredProducts.map(product => (
                                     <ProductCard key={product.id} product={product} />
                                 ))}

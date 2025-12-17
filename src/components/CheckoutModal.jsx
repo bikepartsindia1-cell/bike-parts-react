@@ -1,16 +1,79 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, CreditCard, Smartphone, Banknote } from 'lucide-react';
 import { formatPrice } from '../lib/utils';
 import { useCart } from '../context/CartContext';
 import { useOrders } from '../context/OrderContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const CheckoutModal = ({ isOpen, onClose, total }) => {
     const { cart, clearCart } = useCart();
     const { placeOrder } = useOrders();
+    const { user } = useAuth();
     const [paymentMethod, setPaymentMethod] = useState('');
     const [isSuccess, setIsSuccess] = useState(false);
     const [loading, setLoading] = useState(false);
     const [orderNumber, setOrderNumber] = useState('');
+    const [userProfile, setUserProfile] = useState(null);
+    const [formData, setFormData] = useState({
+        firstName: '',
+        lastName: '',
+        email: '',
+        phone: '',
+        address: '',
+        city: '',
+        pincode: ''
+    });
+
+    // Load user profile data when modal opens
+    useEffect(() => {
+        if (isOpen && user?.id) {
+            loadUserProfile();
+        }
+    }, [isOpen, user]);
+
+    const loadUserProfile = async () => {
+        try {
+            const { data: profileData } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .single();
+
+            if (profileData) {
+                setUserProfile(profileData);
+                setFormData({
+                    firstName: profileData.first_name || '',
+                    lastName: profileData.last_name || '',
+                    email: profileData.email || user.email || '',
+                    phone: profileData.phone || '',
+                    address: profileData.address || '',
+                    city: profileData.city || '',
+                    pincode: profileData.pincode || ''
+                });
+            } else {
+                // Fallback to user email if no profile
+                setFormData(prev => ({
+                    ...prev,
+                    email: user.email || ''
+                }));
+            }
+        } catch (error) {
+            console.error('Error loading user profile:', error);
+            // Fallback to user email
+            setFormData(prev => ({
+                ...prev,
+                email: user.email || ''
+            }));
+        }
+    };
+
+    const handleInputChange = (field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            [field]: value
+        }));
+    };
 
     if (!isOpen) return null;
 
@@ -18,20 +81,25 @@ const CheckoutModal = ({ isOpen, onClose, total }) => {
         e.preventDefault();
         setLoading(true);
 
-        try {
-            const formData = new FormData(e.target);
+        // Validate pincode
+        if (formData.pincode && !/^[0-9]{6}$/.test(formData.pincode)) {
+            alert('Pincode must be exactly 6 digits');
+            setLoading(false);
+            return;
+        }
 
+        try {
             const orderData = {
                 items: cart,
                 total,
                 paymentMethod,
                 shippingAddress: {
-                    name: `${formData.get('firstName')} ${formData.get('lastName')}`,
-                    email: formData.get('email'),
-                    phone: formData.get('phone'),
-                    address: formData.get('address'),
-                    city: formData.get('city'),
-                    pincode: formData.get('pincode')
+                    name: `${formData.firstName} ${formData.lastName}`,
+                    email: formData.email,
+                    phone: formData.phone,
+                    address: formData.address,
+                    city: formData.city,
+                    pincode: formData.pincode
                 }
             };
 
@@ -44,6 +112,23 @@ const CheckoutModal = ({ isOpen, onClose, total }) => {
                 setOrderNumber(result.order.id);
                 setIsSuccess(true);
                 clearCart();
+
+                // Save address information to user profile for future use
+                if (user?.id && (formData.address || formData.city || formData.pincode)) {
+                    try {
+                        await supabase
+                            .from('profiles')
+                            .update({
+                                address: formData.address,
+                                city: formData.city,
+                                pincode: formData.pincode
+                            })
+                            .eq('id', user.id);
+                        console.log('✅ Address saved to profile for future orders');
+                    } catch (addressError) {
+                        console.warn('⚠️ Could not save address to profile:', addressError);
+                    }
+                }
             } else {
                 console.error('❌ Order failed:', result);
                 alert('Failed to place order. Please check console for details.');
@@ -183,37 +268,90 @@ const CheckoutModal = ({ isOpen, onClose, total }) => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-                                <input name="firstName" type="text" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                                <input 
+                                    type="text" 
+                                    required 
+                                    value={formData.firstName}
+                                    onChange={(e) => handleInputChange('firstName', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" 
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                                <input name="lastName" type="text" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                                <input 
+                                    type="text" 
+                                    required 
+                                    value={formData.lastName}
+                                    onChange={(e) => handleInputChange('lastName', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" 
+                                />
                             </div>
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-                            <input name="email" type="email" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                            <input 
+                                type="email" 
+                                required 
+                                value={formData.email}
+                                onChange={(e) => handleInputChange('email', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" 
+                            />
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                            <input name="phone" type="tel" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                            <input 
+                                type="tel" 
+                                required 
+                                value={formData.phone}
+                                onChange={(e) => handleInputChange('phone', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" 
+                            />
                         </div>
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Shipping Address</label>
-                            <textarea name="address" required rows="2" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+                            <textarea 
+                                required 
+                                rows="2" 
+                                value={formData.address}
+                                onChange={(e) => handleInputChange('address', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                            ></textarea>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                                <input name="city" type="text" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                                <input 
+                                    type="text" 
+                                    required 
+                                    value={formData.city}
+                                    onChange={(e) => handleInputChange('city', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" 
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
-                                <input name="pincode" type="text" required className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                                <input 
+                                    type="text" 
+                                    required 
+                                    value={formData.pincode}
+                                    onChange={(e) => {
+                                        const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                                        if (value.length <= 6) {
+                                            handleInputChange('pincode', value);
+                                        }
+                                    }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" 
+                                    placeholder="Enter 6-digit pincode"
+                                    maxLength="6"
+                                    pattern="[0-9]{6}"
+                                />
+                                {formData.pincode && formData.pincode.length !== 6 && (
+                                    <p className="text-red-500 text-xs mt-1">Pincode must be exactly 6 digits</p>
+                                )}
                             </div>
                         </div>
 

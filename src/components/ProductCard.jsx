@@ -70,12 +70,20 @@ const ProductCard = ({ product }) => {
                 </Link>
 
                 <div className="flex items-center mb-2">
-                    <div className="flex text-yellow-400 text-sm">
-                        {[...Array(5)].map((_, i) => (
-                            <Star key={i} className={`w-3 h-3 ${i < Math.floor(product.rating) ? 'fill-current' : ''}`} />
-                        ))}
-                    </div>
-                    <span className="text-gray-600 text-xs ml-2">({product.reviews})</span>
+                    {product.rating > 0 ? (
+                        <>
+                            <div className="flex text-yellow-400 text-sm">
+                                {[...Array(5)].map((_, i) => (
+                                    <Star key={i} className={`w-3 h-3 ${i < Math.floor(product.rating) ? 'fill-current' : ''}`} />
+                                ))}
+                            </div>
+                            <span className="text-gray-600 text-xs ml-2">
+                                {product.rating} ({product.reviews} review{product.reviews !== 1 ? 's' : ''})
+                            </span>
+                        </>
+                    ) : (
+                        <span className="text-gray-500 text-xs">No reviews yet</span>
+                    )}
                 </div>
 
                 <div className="flex items-center justify-between mb-3">
@@ -96,12 +104,13 @@ const ProductCard = ({ product }) => {
                         <ShoppingCart className="w-4 h-4" />
                         {product.inStock > 0 ? 'Add' : 'No Stock'}
                     </button>
-                    <button
-                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
-                        title="Quick View"
+                    <Link
+                        to={`/product/${product.id}`}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-gray-600 flex items-center justify-center"
+                        title="View Details"
                     >
                         <Eye className="w-4 h-4" />
-                    </button>
+                    </Link>
                 </div>
             </div>
 

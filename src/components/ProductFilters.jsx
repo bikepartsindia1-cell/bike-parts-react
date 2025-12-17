@@ -3,24 +3,21 @@ import { Filter, X } from 'lucide-react';
 import { formatPrice } from '../lib/utils';
 import bikeData from '../data/bikes.json';
 
-const ProductFilters = ({ filters, setFilters, priceRange, setPriceRange, clearFilters, isOpen, onClose }) => {
+const ProductFilters = ({ filters, setFilters, priceRange, setPriceRange, clearFilters, isOpen, onClose, maxPrice = 10000 }) => {
     const handleCheckboxChange = (category, value) => {
         setFilters(prev => {
             const current = prev[category] || [];
             const updated = current.includes(value)
                 ? current.filter(item => item !== value)
                 : [...current, value];
+            
+            // If changing brand, reset bike model
+            if (category === 'brand') {
+                return { ...prev, [category]: updated, bikeModel: '' };
+            }
+            
             return { ...prev, [category]: updated };
         });
-    };
-
-    const handleMakeChange = (e) => {
-        const make = e.target.value;
-        setFilters(prev => ({
-            ...prev,
-            bikeMake: make,
-            bikeModel: '' // Reset model when make changes
-        }));
     };
 
     const handleModelChange = (e) => {
@@ -29,6 +26,17 @@ const ProductFilters = ({ filters, setFilters, priceRange, setPriceRange, clearF
             bikeModel: e.target.value
         }));
     };
+
+    // Get all bike makes (manufacturers) from bikes.json
+    const bikeMakes = Object.keys(bikeData);
+    
+    // Get selected brands that are also bike manufacturers
+    const selectedBikeMakes = (filters.brand || []).filter(brand => bikeMakes.includes(brand));
+    
+    // Get all models for selected bike makes
+    const availableModels = selectedBikeMakes.length > 0
+        ? selectedBikeMakes.flatMap(make => bikeData[make] || [])
+        : [];
 
     return (
         <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-white shadow-xl transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:h-auto lg:shadow-none lg:bg-transparent ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -48,47 +56,12 @@ const ProductFilters = ({ filters, setFilters, priceRange, setPriceRange, clearF
                         </button>
                     </div>
 
-                    {/* Bike Model Filter */}
+                    {/* Brand Filter (includes all bike manufacturers) */}
                     <div className="mb-6">
-                        <h4 className="font-medium text-gray-900 mb-3">Select Your Bike</h4>
-                        <div className="space-y-3">
-                            <div>
-                                <label className="block text-xs text-gray-500 mb-1">Make</label>
-                                <select
-                                    value={filters.bikeMake || ''}
-                                    onChange={handleMakeChange}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                >
-                                    <option value="">All Makes</option>
-                                    {Object.keys(bikeData).map(make => (
-                                        <option key={make} value={make}>{make}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {filters.bikeMake && (
-                                <div>
-                                    <label className="block text-xs text-gray-500 mb-1">Model</label>
-                                    <select
-                                        value={filters.bikeModel || ''}
-                                        onChange={handleModelChange}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                    >
-                                        <option value="">All Models</option>
-                                        {bikeData[filters.bikeMake]?.map(model => (
-                                            <option key={model} value={model}>{model}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Brand Filter */}
-                    <div className="mb-6">
-                        <h4 className="font-medium text-gray-900 mb-3">Brand</h4>
+                        <h4 className="font-medium text-gray-900 mb-3">Brand / Manufacturer</h4>
                         <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {(JSON.parse(localStorage.getItem('bikeparts_brands')) || ['Royal Enfield', 'Hero', 'Bajaj', 'Honda', 'TVS', 'Yamaha', 'Universal']).map(brand => (
+                            {/* Show bike manufacturers first */}
+                            {bikeMakes.map(brand => (
                                 <label key={brand} className="flex items-center cursor-pointer hover:bg-gray-50 p-1 rounded">
                                     <input
                                         type="checkbox"
@@ -99,8 +72,52 @@ const ProductFilters = ({ filters, setFilters, priceRange, setPriceRange, clearF
                                     <span className="ml-2 text-gray-700 text-sm">{brand}</span>
                                 </label>
                             ))}
+                            
+                            {/* Add separator */}
+                            {(JSON.parse(localStorage.getItem('bikeparts_brands')) || []).filter(brand => !bikeMakes.includes(brand)).length > 0 && (
+                                <div className="border-t border-gray-200 my-2 pt-2">
+                                    <span className="text-xs text-gray-500 font-medium">Product Brands</span>
+                                </div>
+                            )}
+                            
+                            {/* Add other product brands from localStorage */}
+                            {(JSON.parse(localStorage.getItem('bikeparts_brands')) || [])
+                                .filter(brand => !bikeMakes.includes(brand))
+                                .map(brand => (
+                                    <label key={brand} className="flex items-center cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                        <input
+                                            type="checkbox"
+                                            checked={filters.brand?.includes(brand) || false}
+                                            onChange={() => handleCheckboxChange('brand', brand)}
+                                            className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                                        />
+                                        <span className="ml-2 text-gray-700 text-sm">{brand}</span>
+                                    </label>
+                                ))}
                         </div>
                     </div>
+
+                    {/* Bike Model Filter - Shows only when a bike manufacturer is selected */}
+                    {selectedBikeMakes.length > 0 && availableModels.length > 0 && (
+                        <div className="mb-6">
+                            <h4 className="font-medium text-gray-900 mb-3">
+                                Select Your Bike Model
+                                <span className="text-xs text-gray-500 ml-2">
+                                    ({selectedBikeMakes.join(', ')})
+                                </span>
+                            </h4>
+                            <select
+                                value={filters.bikeModel || ''}
+                                onChange={handleModelChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                            >
+                                <option value="">All Models</option>
+                                {availableModels.map(model => (
+                                    <option key={model} value={model}>{model}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     {/* Category Filter */}
                     <div className="mb-6">
@@ -127,7 +144,7 @@ const ProductFilters = ({ filters, setFilters, priceRange, setPriceRange, clearF
                             <input
                                 type="range"
                                 min="0"
-                                max="10000"
+                                max={maxPrice}
                                 step="100"
                                 value={priceRange[1]}
                                 onChange={(e) => setPriceRange([priceRange[0], parseInt(e.target.value)])}

@@ -9,11 +9,58 @@ import { useProducts } from '../context/ProductContext';
 import { useOrders } from '../context/OrderContext';
 import { useAuth } from '../context/AuthContext';
 import { formatPrice } from '../lib/utils';
+import { notificationService } from '../lib/notificationService';
+import { supabase } from '../lib/supabase';
 
 const AdminDashboard = () => {
     const { products, addProduct, updateProduct, deleteProduct } = useProducts();
-    const { orders, placeOrder, updateOrderStatus, deleteOrder } = useOrders();
-    const { signOut } = useAuth();
+    const { orders, loading, refreshOrders, placeOrder, updateOrderStatus, deleteOrder } = useOrders();
+    const { user, signOut } = useAuth();
+
+    // Customers state
+    const [customers, setCustomers] = useState([]);
+    const [customersLoading, setCustomersLoading] = useState(false);
+
+    // Notifications state
+    const [showNotifications, setShowNotifications] = useState(false);
+
+    // Debug orders
+    useEffect(() => {
+        console.log('🏪 AdminDashboard - Orders updated:', orders.length, orders);
+    }, [orders]);
+
+    // Simple refresh function
+    const handleRefreshOrders = async () => {
+        console.log('🔄 Refreshing orders...');
+        await refreshOrders();
+    };
+
+    // Fetch customers from profiles table
+    const fetchCustomers = async () => {
+        try {
+            setCustomersLoading(true);
+            console.log('👥 Fetching customers...');
+
+            const { data: profiles, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('❌ Customers fetch error:', error);
+                throw error;
+            }
+
+            console.log(`✅ Customers fetched: ${profiles?.length || 0} customers`);
+            setCustomers(profiles || []);
+        } catch (error) {
+            console.error('❌ Error fetching customers:', error);
+            setCustomers([]);
+        } finally {
+            setCustomersLoading(false);
+        }
+    };
+
     const navigate = useNavigate();
     const [activeSection, setActiveSection] = useState('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
@@ -27,17 +74,46 @@ const AdminDashboard = () => {
     const [editingProduct, setEditingProduct] = useState(null);
     const [selectedOrder, setSelectedOrder] = useState(null);
 
-    // Sound notification
+    // Track order count changes and play notification for new orders (admin only)
     useEffect(() => {
-        const audio = new Audio('/notification.mp3');
         const previousOrderCount = parseInt(localStorage.getItem('previousOrderCount') || '0');
-
-        if (orders.length > previousOrderCount) {
-            audio.play().catch(e => console.log('Audio play failed:', e));
+        const currentOrderCount = orders.length;
+        
+        console.log('📊 Order count check:', { previousOrderCount, currentOrderCount, isAdmin: notificationService.isAdminUser(user) });
+        
+        // Only play notification if there are new orders and user is admin
+        if (currentOrderCount > previousOrderCount && previousOrderCount > 0) {
+            if (notificationService.isAdminUser(user)) {
+                console.log('🔔 New order detected! Playing admin notification...');
+                notificationService.playOrderNotification();
+            } else {
+                console.log('❌ New order detected but user is not admin');
+            }
         }
+        
+        localStorage.setItem('previousOrderCount', currentOrderCount.toString());
+    }, [orders.length, user]);
 
-        localStorage.setItem('previousOrderCount', orders.length.toString());
-    }, [orders.length]);
+    // Fetch customers when switching to customers section
+    useEffect(() => {
+        if (activeSection === 'customers') {
+            fetchCustomers();
+        }
+    }, [activeSection]);
+
+    // Close notifications when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (showNotifications && !event.target.closest('.notifications-dropdown')) {
+                setShowNotifications(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showNotifications]);
 
     // Product form state
     const [productForm, setProductForm] = useState({
@@ -138,36 +214,7 @@ const AdminDashboard = () => {
         p.brand.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const handleCreateTestOrder = async () => {
-        // Use real products if available, otherwise use dummy IDs (which might fail DB constraints)
-        const testItems = products.length > 0
-            ? [{ id: products[0].id, quantity: 1, price: products[0].price }]
-            : [
-                { id: 'test-prod-1', quantity: 1, price: 1500 },
-                { id: 'test-prod-2', quantity: 2, price: 425 }
-            ];
 
-        const dummyOrder = {
-            total: testItems.reduce((sum, item) => sum + (item.price * item.quantity), 0),
-            items: testItems,
-            shippingAddress: {
-                name: 'Test Customer',
-                phone: '9876543210',
-                address: '123 Test Lane, Demo District',
-                city: 'Gurgaon',
-                pincode: '122001'
-            }
-        };
-
-        const result = await placeOrder(dummyOrder);
-        if (result.success) {
-            const audio = new Audio('/notification.mp3');
-            audio.play().catch(e => console.log('Audio play failed:', e));
-            alert('Test order created successfully! Refresh to see it.');
-        } else {
-            alert('Failed to create test order.');
-        }
-    };
 
     const handleAddProduct = async (e) => {
         e.preventDefault();
@@ -253,8 +300,6 @@ const AdminDashboard = () => {
         });
         setIsEditProductOpen(true);
     };
-
-    const { user } = useAuth();
 
     const handleStatusUpdate = async (orderId, newStatus) => {
         const result = await updateOrderStatus(orderId, newStatus);
@@ -379,14 +424,122 @@ const AdminDashboard = () => {
                             >
                                 <Package className="w-4 h-4 mr-2" /> View Website
                             </button>
-                            <button className="p-2 text-gray-600 hover:text-amber-500 transition-colors relative">
-                                <Bell className="w-5 h-5" />
-                                {lowStockProducts.length > 0 && (
-                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
-                                        {lowStockProducts.length}
-                                    </span>
+                            <div className="relative notifications-dropdown">
+                                <button 
+                                    onClick={() => {
+                                        setShowNotifications(!showNotifications);
+                                        // Play cute bell sound when opening notifications
+                                        if (!showNotifications) {
+                                            notificationService.playBellSound();
+                                        }
+                                    }}
+                                    className="p-2 text-gray-600 hover:text-amber-500 transition-colors relative"
+                                    title="Notifications"
+                                >
+                                    <Bell className="w-5 h-5" />
+                                    {(() => {
+                                        const recentOrders = orders.filter(order => {
+                                            const orderDate = new Date(order.created_at);
+                                            const today = new Date();
+                                            const diffTime = Math.abs(today - orderDate);
+                                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                            return diffDays <= 1; // Orders from last 24 hours
+                                        });
+                                        const totalNotifications = recentOrders.length + lowStockProducts.length;
+                                        
+                                        return totalNotifications > 0 && (
+                                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                                                {totalNotifications > 99 ? '99+' : totalNotifications}
+                                            </span>
+                                        );
+                                    })()}
+                                </button>
+
+                                {/* Notifications Dropdown */}
+                                {showNotifications && (
+                                    <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 max-h-96 overflow-y-auto">
+                                        <div className="p-4 border-b border-gray-200">
+                                            <h3 className="text-lg font-semibold text-gray-900">Notifications</h3>
+                                        </div>
+                                        
+                                        <div className="divide-y divide-gray-100">
+                                            {/* Recent Orders */}
+                                            {(() => {
+                                                const recentOrders = orders.filter(order => {
+                                                    const orderDate = new Date(order.created_at);
+                                                    const today = new Date();
+                                                    const diffTime = Math.abs(today - orderDate);
+                                                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                                    return diffDays <= 1;
+                                                }).slice(0, 5);
+
+                                                return recentOrders.map(order => (
+                                                    <div key={`order-${order.id}`} className="p-4 hover:bg-gray-50">
+                                                        <div className="flex items-start space-x-3">
+                                                            <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                                                            <div className="flex-1">
+                                                                <p className="text-sm font-medium text-gray-900">
+                                                                    New Order #{order.id}
+                                                                </p>
+                                                                <p className="text-xs text-gray-600">
+                                                                    {order.shipping_address?.name || 'Customer'} • {formatPrice(order.total)}
+                                                                </p>
+                                                                <p className="text-xs text-gray-500">
+                                                                    {new Date(order.created_at).toLocaleString()}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ));
+                                            })()}
+
+                                            {/* Low Stock Alerts */}
+                                            {lowStockProducts.slice(0, 5).map(product => (
+                                                <div key={`stock-${product.id}`} className="p-4 hover:bg-gray-50">
+                                                    <div className="flex items-start space-x-3">
+                                                        <div className="w-2 h-2 bg-red-500 rounded-full mt-2"></div>
+                                                        <div className="flex-1">
+                                                            <p className="text-sm font-medium text-gray-900">
+                                                                Low Stock Alert
+                                                            </p>
+                                                            <p className="text-xs text-gray-600">
+                                                                {product.name} - Only {product.inStock} left
+                                                            </p>
+                                                            <p className="text-xs text-gray-500">
+                                                                {product.brand}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {/* No Notifications */}
+                                            {orders.filter(order => {
+                                                const orderDate = new Date(order.created_at);
+                                                const today = new Date();
+                                                const diffTime = Math.abs(today - orderDate);
+                                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                                return diffDays <= 1;
+                                            }).length === 0 && lowStockProducts.length === 0 && (
+                                                <div className="p-8 text-center">
+                                                    <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                                                    <p className="text-gray-500">No new notifications</p>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Footer */}
+                                        <div className="p-4 border-t border-gray-200 bg-gray-50">
+                                            <button
+                                                onClick={() => setShowNotifications(false)}
+                                                className="w-full text-sm text-gray-600 hover:text-gray-800"
+                                            >
+                                                Close Notifications
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
-                            </button>
+                            </div>
                             <button
                                 onClick={handleLogout}
                                 className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
@@ -477,15 +630,27 @@ const AdminDashboard = () => {
                                     >
                                         View All Orders
                                     </button>
+
                                     <button
-                                        onClick={handleCreateTestOrder}
-                                        className="ml-4 text-sm bg-amber-100 text-amber-700 px-3 py-1 rounded-md hover:bg-amber-200 font-medium transition-colors"
+                                        onClick={handleRefreshOrders}
+                                        disabled={loading}
+                                        className="ml-2 text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-md hover:bg-blue-200 font-medium transition-colors disabled:opacity-50"
                                     >
-                                        + Create Test Order
+                                        🔄 Refresh
                                     </button>
                                 </div>
-                                {orders.length === 0 ? (
-                                    <p className="text-gray-500 text-center py-8">No orders yet</p>
+                                {loading ? (
+                                    <div className="text-center py-8">
+                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                                        <p className="text-gray-500 mt-2">Loading orders...</p>
+                                    </div>
+                                ) : orders.length === 0 ? (
+                                    <div className="text-center py-8">
+                                        <p className="text-gray-500 mb-4">No orders found</p>
+                                        <p className="text-sm text-gray-400">
+                                            Try the "🔄 Refresh" button above to reload orders
+                                        </p>
+                                    </div>
                                 ) : (
                                     <div className="overflow-x-auto">
                                         <table className="w-full">
@@ -503,7 +668,7 @@ const AdminDashboard = () => {
                                                 {orders.slice(0, 5).map(order => (
                                                     <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
                                                         <td className="py-3 px-4 font-medium text-gray-900">#{order.id}</td>
-                                                        <td className="py-3 px-4 text-gray-600">{order.items.length} items</td>
+                                                        <td className="py-3 px-4 text-gray-600">{order.order_items?.length || order.items?.length || 0} items</td>
                                                         <td className="py-3 px-4 font-semibold text-gray-900">{formatPrice(order.total)}</td>
                                                         <td className="py-3 px-4">
                                                             <select
@@ -670,20 +835,252 @@ const AdminDashboard = () => {
 
                     {activeSection === 'orders' && (
                         <div>
-                            <h2 className="text-3xl font-bold text-gray-900 mb-6">Order Management</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-3xl font-bold text-gray-900">Order Management</h2>
+                                <button
+                                    onClick={handleRefreshOrders}
+                                    disabled={loading}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+                                >
+                                    🔄 Refresh Orders
+                                </button>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                 <div className="bg-blue-50 p-6 rounded-lg text-center">
                                     <div className="text-3xl font-bold text-blue-600">{orders.filter(o => o.status === 'Pending').length}</div>
                                     <div className="text-sm text-blue-800 mt-1">Pending Orders</div>
-                                </div>
-                                <div className="bg-green-50 p-6 rounded-lg text-center">
-                                    <div className="text-3xl font-bold text-green-600">{orders.filter(o => o.status === 'Delivered').length}</div>
-                                    <div className="text-sm text-green-800 mt-1">Completed Orders</div>
                                 </div>
                                 <div className="bg-orange-50 p-6 rounded-lg text-center">
                                     <div className="text-3xl font-bold text-orange-600">{orders.filter(o => o.status === 'Processing').length}</div>
                                     <div className="text-sm text-orange-800 mt-1">Processing Orders</div>
                                 </div>
+                                <div className="bg-purple-50 p-6 rounded-lg text-center">
+                                    <div className="text-3xl font-bold text-purple-600">{orders.filter(o => o.status === 'Shipped').length}</div>
+                                    <div className="text-sm text-purple-800 mt-1">Shipped Orders</div>
+                                </div>
+                                <div className="bg-green-50 p-6 rounded-lg text-center">
+                                    <div className="text-3xl font-bold text-green-600">{orders.filter(o => o.status === 'Delivered').length}</div>
+                                    <div className="text-sm text-green-800 mt-1">Completed Orders</div>
+                                </div>
+                            </div>
+
+                            {/* All Orders Table */}
+                            <div className="bg-white rounded-xl shadow-sm p-6">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4">All Orders</h3>
+                                {loading ? (
+                                    <div className="text-center py-8">
+                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                                        <p className="text-gray-500 mt-2">Loading orders...</p>
+                                    </div>
+                                ) : orders.length === 0 ? (
+                                    <div className="text-center py-8">
+                                        <p className="text-gray-500 mb-4">No orders found</p>
+                                        <p className="text-sm text-gray-400">
+                                            Orders from the database will appear here
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="border-b border-gray-200">
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Order ID</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Customer</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Items</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Total</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Status</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Date</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {orders.map(order => (
+                                                    <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                        <td className="py-3 px-4 font-medium text-gray-900">#{order.id}</td>
+                                                        <td className="py-3 px-4 text-gray-600">
+                                                            {order.shipping_address?.name || order.shippingAddress?.name || 'N/A'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-gray-600">{order.order_items?.length || order.items?.length || 0} items</td>
+                                                        <td className="py-3 px-4 font-semibold text-gray-900">{formatPrice(order.total)}</td>
+                                                        <td className="py-3 px-4">
+                                                            <select
+                                                                value={order.status}
+                                                                onChange={(e) => handleStatusUpdate(order.id, e.target.value)}
+                                                                className={`text-xs rounded-full px-2 py-1 border-none focus:ring-2 focus:ring-amber-500 cursor-pointer ${order.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+                                                                    order.status === 'Cancelled' ? 'bg-red-100 text-red-800' :
+                                                                        'bg-yellow-100 text-yellow-800'
+                                                                    }`}
+                                                            >
+                                                                <option value="Pending">Pending</option>
+                                                                <option value="Processing">Processing</option>
+                                                                <option value="Shipped">Shipped</option>
+                                                                <option value="Delivered">Delivered</option>
+                                                                <option value="Cancelled">Cancelled</option>
+                                                            </select>
+                                                        </td>
+                                                        <td className="py-3 px-4 text-gray-600 text-sm">
+                                                            {new Date(order.created_at).toLocaleDateString()}
+                                                        </td>
+                                                        <td className="py-3 px-4">
+                                                            <div className="flex space-x-2">
+                                                                <button
+                                                                    onClick={() => handleViewOrder(order)}
+                                                                    className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                                                                    title="View Details"
+                                                                >
+                                                                    <Eye className="w-4 h-4" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeleteOrder(order.id)}
+                                                                    className="p-1 text-red-600 hover:bg-red-50 rounded"
+                                                                    title="Delete Order"
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSection === 'customers' && (
+                        <div>
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-3xl font-bold text-gray-900">Customer Management</h2>
+                                <button
+                                    onClick={async () => {
+                                        await Promise.all([
+                                            handleRefreshOrders(),
+                                            fetchCustomers()
+                                        ]);
+                                    }}
+                                    disabled={loading || customersLoading}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+                                >
+                                    🔄 Refresh Data
+                                </button>
+                            </div>
+
+                            {/* Customer Stats */}
+                            <div className="grid grid-cols-1 md:grid-cols-1 gap-4 mb-6">
+                                <div className="bg-blue-50 p-6 rounded-lg text-center">
+                                    <div className="text-3xl font-bold text-blue-600">{customers.length}</div>
+                                    <div className="text-sm text-blue-800 mt-1">Total Customers</div>
+                                </div>
+                            </div>
+
+                            {/* Customers Table */}
+                            <div className="bg-white rounded-xl shadow-sm p-6">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4">All Customers</h3>
+                                {customersLoading ? (
+                                    <div className="text-center py-8">
+                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                                        <p className="text-gray-500 mt-2">Loading customers...</p>
+                                    </div>
+                                ) : customers.length === 0 ? (
+                                    <div className="text-center py-8">
+                                        <p className="text-gray-500 mb-4">No customers found</p>
+                                        <p className="text-sm text-gray-400">
+                                            Customer profiles will appear here when users register
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full">
+                                            <thead>
+                                                <tr className="border-b border-gray-200">
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Name</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Email</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Phone</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">City</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Pincode</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Orders</th>
+                                                    <th className="text-left py-3 px-4 font-medium text-gray-700">Joined</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {customers.map(customer => {
+                                                    // Debug: Log customer and order data to check matching
+                                                    console.log('🔍 Customer data:', customer);
+                                                    console.log('📋 Available orders:', orders.map(o => ({ id: o.id, user_id: o.user_id })));
+                                                    
+                                                    // Try different possible user ID fields
+                                                    const customerUserId = customer.user_id || customer.id || customer.email;
+                                                    
+                                                    const customerOrders = orders.filter(order => {
+                                                        // Try matching with different fields
+                                                        const match = order.user_id === customerUserId || 
+                                                                     order.user_id === customer.user_id ||
+                                                                     order.user_id === customer.id ||
+                                                                     order.user_id === customer.email;
+                                                        if (match) {
+                                                            console.log('✅ Order match found:', order.id, 'for customer:', customer.email);
+                                                        }
+                                                        return match;
+                                                    });
+                                                    
+                                                    const totalSpent = customerOrders.reduce((sum, order) => sum + order.total, 0);
+                                                    
+                                                    console.log('📊 Customer orders count:', customerOrders.length, 'for', customer.email);
+                                                    
+                                                    return (
+                                                        <tr key={customer.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                            <td className="py-3 px-4">
+                                                                <div>
+                                                                    <p className="font-medium text-gray-900">
+                                                                        {customer.first_name && customer.last_name 
+                                                                            ? `${customer.first_name} ${customer.last_name}`
+                                                                            : 'N/A'
+                                                                        }
+                                                                    </p>
+                                                                    {totalSpent > 0 && (
+                                                                        <p className="text-sm text-green-600">
+                                                                            Total spent: {formatPrice(totalSpent)}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-gray-600">
+                                                                {customer.email || 'N/A'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-gray-600">
+                                                                {customer.phone || 'N/A'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-gray-600">
+                                                                {customer.city || 'N/A'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-gray-600">
+                                                                {customer.pincode || 'N/A'}
+                                                            </td>
+                                                            <td className="py-3 px-4">
+                                                                <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                                                                    customerOrders.length > 0 
+                                                                        ? 'bg-green-100 text-green-800' 
+                                                                        : 'bg-gray-100 text-gray-800'
+                                                                }`}>
+                                                                    {customerOrders.length} orders
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-gray-600 text-sm">
+                                                                {customer.created_at 
+                                                                    ? new Date(customer.created_at).toLocaleDateString()
+                                                                    : 'N/A'
+                                                                }
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -709,6 +1106,348 @@ const AdminDashboard = () => {
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeSection === 'analytics' && (
+                        <div>
+                            <h2 className="text-3xl font-bold text-gray-900 mb-6">Analytics & Reports</h2>
+                            
+                            {/* Key Metrics */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                                <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 rounded-xl text-white">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-blue-100 text-sm">Total Revenue</p>
+                                            <p className="text-2xl font-bold">{formatPrice(totalRevenue)}</p>
+                                        </div>
+                                        <TrendingUp className="w-8 h-8 text-blue-200" />
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-xl text-white">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-green-100 text-sm">Avg Order Value</p>
+                                            <p className="text-2xl font-bold">
+                                                {orders.length > 0 ? formatPrice(totalRevenue / orders.length) : '₹0'}
+                                            </p>
+                                        </div>
+                                        <ShoppingCart className="w-8 h-8 text-green-200" />
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6 rounded-xl text-white">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-purple-100 text-sm">Total Products</p>
+                                            <p className="text-2xl font-bold">{products.length}</p>
+                                        </div>
+                                        <Package className="w-8 h-8 text-purple-200" />
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-6 rounded-xl text-white">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-orange-100 text-sm">Conversion Rate</p>
+                                            <p className="text-2xl font-bold">
+                                                {customers.length > 0 ? Math.round((orders.length / customers.length) * 100) : 0}%
+                                            </p>
+                                        </div>
+                                        <Users className="w-8 h-8 text-orange-200" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Top Priority Sections */}
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                                {/* Monthly Revenue Trend */}
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">This Month</h3>
+                                    <div className="space-y-4">
+                                        {(() => {
+                                            const currentMonth = new Date().getMonth();
+                                            const currentYear = new Date().getFullYear();
+                                            const monthlyOrders = orders.filter(order => {
+                                                const orderDate = new Date(order.created_at);
+                                                return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+                                            });
+                                            const monthlyRevenue = monthlyOrders.reduce((sum, order) => sum + order.total, 0);
+                                            
+                                            return (
+                                                <>
+                                                    <div className="text-center p-4 bg-blue-50 rounded-lg">
+                                                        <p className="text-2xl font-bold text-blue-600">{monthlyOrders.length}</p>
+                                                        <p className="text-sm text-blue-800">Orders This Month</p>
+                                                    </div>
+                                                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                                                        <p className="text-2xl font-bold text-green-600">{formatPrice(monthlyRevenue)}</p>
+                                                        <p className="text-sm text-green-800">Monthly Revenue</p>
+                                                    </div>
+                                                    <div className="text-center p-4 bg-purple-50 rounded-lg">
+                                                        <p className="text-2xl font-bold text-purple-600">
+                                                            {monthlyOrders.length > 0 ? formatPrice(monthlyRevenue / monthlyOrders.length) : '₹0'}
+                                                        </p>
+                                                        <p className="text-sm text-purple-800">Avg Order Value</p>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Inventory Health */}
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Inventory Health</h3>
+                                    <div className="space-y-4">
+                                        {(() => {
+                                            const totalInventoryValue = products.reduce((sum, p) => sum + (p.price * p.inStock), 0);
+                                            const lowStockCount = products.filter(p => p.inStock < 10).length;
+                                            const outOfStockCount = products.filter(p => p.inStock === 0).length;
+                                            
+                                            return (
+                                                <>
+                                                    <div className="text-center p-4 bg-amber-50 rounded-lg">
+                                                        <p className="text-2xl font-bold text-amber-600">{formatPrice(totalInventoryValue)}</p>
+                                                        <p className="text-sm text-amber-800">Total Inventory Value</p>
+                                                    </div>
+                                                    <div className="text-center p-4 bg-red-50 rounded-lg">
+                                                        <p className="text-2xl font-bold text-red-600">{lowStockCount}</p>
+                                                        <p className="text-sm text-red-800">Low Stock Items</p>
+                                                    </div>
+                                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                                                        <p className="text-2xl font-bold text-gray-600">{outOfStockCount}</p>
+                                                        <p className="text-sm text-gray-800">Out of Stock</p>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Quick Stats */}
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Stats</h3>
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                            <span className="text-gray-700">Pending Orders</span>
+                                            <span className="font-semibold text-blue-600">
+                                                {orders.filter(o => o.status === 'Pending').length}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                            <span className="text-gray-700">Processing Orders</span>
+                                            <span className="font-semibold text-orange-600">
+                                                {orders.filter(o => o.status === 'Processing').length}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                            <span className="text-gray-700">Shipped Orders</span>
+                                            <span className="font-semibold text-purple-600">
+                                                {orders.filter(o => o.status === 'Shipped').length}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                            <span className="text-gray-700">Completed Orders</span>
+                                            <span className="font-semibold text-green-600">
+                                                {orders.filter(o => o.status === 'Delivered').length}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                            <span className="text-gray-700">Total Customers</span>
+                                            <span className="font-semibold text-indigo-600">{customers.length}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Secondary Analytics */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                                {/* Top Products */}
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Products by Stock</h3>
+                                    <div className="space-y-3">
+                                        {products
+                                            .sort((a, b) => b.inStock - a.inStock)
+                                            .slice(0, 5)
+                                            .map((product, index) => (
+                                                <div key={product.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                                    <div className="flex items-center space-x-3">
+                                                        <span className="w-6 h-6 bg-blue-500 text-white text-xs rounded-full flex items-center justify-center">
+                                                            {index + 1}
+                                                        </span>
+                                                        <div>
+                                                            <p className="font-medium text-gray-900">{product.name}</p>
+                                                            <p className="text-sm text-gray-600">{product.brand}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="font-semibold text-gray-900">{product.inStock} units</p>
+                                                        <p className="text-sm text-gray-600">{formatPrice(product.price)}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                    </div>
+                                </div>
+
+                                {/* Order Status Distribution */}
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Status Distribution</h3>
+                                    <div className="space-y-3">
+                                        {[
+                                            { status: 'Pending', count: orders.filter(o => o.status === 'Pending').length, color: 'bg-blue-500' },
+                                            { status: 'Processing', count: orders.filter(o => o.status === 'Processing').length, color: 'bg-orange-500' },
+                                            { status: 'Shipped', count: orders.filter(o => o.status === 'Shipped').length, color: 'bg-purple-500' },
+                                            { status: 'Delivered', count: orders.filter(o => o.status === 'Delivered').length, color: 'bg-green-500' },
+                                            { status: 'Cancelled', count: orders.filter(o => o.status === 'Cancelled').length, color: 'bg-red-500' }
+                                        ].map((item) => (
+                                            <div key={item.status} className="flex items-center justify-between">
+                                                <div className="flex items-center space-x-3">
+                                                    <div className={`w-4 h-4 rounded ${item.color}`}></div>
+                                                    <span className="text-gray-700">{item.status}</span>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <span className="font-semibold text-gray-900">{item.count}</span>
+                                                    <span className="text-sm text-gray-500">
+                                                        ({orders.length > 0 ? Math.round((item.count / orders.length) * 100) : 0}%)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Customer Insights & Product Performance */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                                {/* Top Customers */}
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Customers by Orders</h3>
+                                    <div className="space-y-3">
+                                        {customers
+                                            .map(customer => {
+                                                const customerOrders = orders.filter(order => 
+                                                    order.user_id === customer.user_id || 
+                                                    order.user_id === customer.id
+                                                );
+                                                const totalSpent = customerOrders.reduce((sum, order) => sum + order.total, 0);
+                                                return { ...customer, orderCount: customerOrders.length, totalSpent };
+                                            })
+                                            .filter(customer => customer.orderCount > 0)
+                                            .sort((a, b) => b.orderCount - a.orderCount)
+                                            .slice(0, 5)
+                                            .map((customer, index) => (
+                                                <div key={customer.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                                    <div className="flex items-center space-x-3">
+                                                        <span className="w-6 h-6 bg-green-500 text-white text-xs rounded-full flex items-center justify-center">
+                                                            {index + 1}
+                                                        </span>
+                                                        <div>
+                                                            <p className="font-medium text-gray-900">
+                                                                {customer.first_name && customer.last_name 
+                                                                    ? `${customer.first_name} ${customer.last_name}`
+                                                                    : customer.email || 'Customer'
+                                                                }
+                                                            </p>
+                                                            <p className="text-sm text-gray-600">{customer.email}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="font-semibold text-gray-900">{customer.orderCount} orders</p>
+                                                        <p className="text-sm text-green-600">{formatPrice(customer.totalSpent)}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        {customers.filter(c => {
+                                            const customerOrders = orders.filter(order => 
+                                                order.user_id === c.user_id || order.user_id === c.id
+                                            );
+                                            return customerOrders.length > 0;
+                                        }).length === 0 && (
+                                            <p className="text-gray-500 text-center py-4">No customer orders found</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Product Categories Performance */}
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Product Categories</h3>
+                                    <div className="space-y-3">
+                                        {(() => {
+                                            const categoryStats = {};
+                                            products.forEach(product => {
+                                                if (!categoryStats[product.category]) {
+                                                    categoryStats[product.category] = {
+                                                        count: 0,
+                                                        totalValue: 0,
+                                                        totalStock: 0
+                                                    };
+                                                }
+                                                categoryStats[product.category].count++;
+                                                categoryStats[product.category].totalValue += product.price * product.inStock;
+                                                categoryStats[product.category].totalStock += product.inStock;
+                                            });
+                                            
+                                            return Object.entries(categoryStats)
+                                                .sort((a, b) => b[1].count - a[1].count)
+                                                .slice(0, 6)
+                                                .map(([category, stats], index) => (
+                                                    <div key={category} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                                        <div className="flex items-center space-x-3">
+                                                            <span className="w-6 h-6 bg-purple-500 text-white text-xs rounded-full flex items-center justify-center">
+                                                                {index + 1}
+                                                            </span>
+                                                            <div>
+                                                                <p className="font-medium text-gray-900">{category}</p>
+                                                                <p className="text-sm text-gray-600">{stats.count} products</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <p className="font-semibold text-gray-900">{stats.totalStock} units</p>
+                                                            <p className="text-sm text-purple-600">{formatPrice(stats.totalValue)}</p>
+                                                        </div>
+                                                    </div>
+                                                ));
+                                        })()}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Recent Activity */}
+                            <div className="bg-white rounded-xl shadow-sm p-6">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+                                <div className="space-y-4">
+                                    {orders.slice(0, 8).map((order) => (
+                                        <div key={order.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                                            <div className="flex items-center space-x-4">
+                                                <div className={`w-3 h-3 rounded-full ${
+                                                    order.status === 'Delivered' ? 'bg-green-500' :
+                                                    order.status === 'Shipped' ? 'bg-purple-500' :
+                                                    order.status === 'Processing' ? 'bg-orange-500' :
+                                                    order.status === 'Cancelled' ? 'bg-red-500' :
+                                                    'bg-blue-500'
+                                                }`}></div>
+                                                <div>
+                                                    <p className="font-medium text-gray-900">Order #{order.id}</p>
+                                                    <p className="text-sm text-gray-600">
+                                                        {order.shipping_address?.name || order.shippingAddress?.name || 'Customer'} • {formatPrice(order.total)} • {order.order_items?.length || order.items?.length || 0} items
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-sm font-medium text-gray-900">{order.status}</p>
+                                                <p className="text-xs text-gray-500">
+                                                    {new Date(order.created_at).toLocaleDateString()} {new Date(order.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {orders.length === 0 && (
+                                        <p className="text-gray-500 text-center py-8">No recent activity</p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1068,7 +1807,7 @@ const AdminDashboard = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
-                                            {selectedOrder.items.map((item, idx) => (
+                                            {(selectedOrder.items || selectedOrder.order_items || []).map((item, idx) => (
                                                 <tr key={idx}>
                                                     <td className="px-4 py-2">{item.name || `Product #${item.id}`}</td>
                                                     <td className="px-4 py-2 text-center">{item.quantity}</td>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowRight, CheckCircle, Truck, Shield, Star, ShoppingBag, Search } from 'lucide-react';
@@ -9,6 +9,45 @@ import { useProducts } from '../context/ProductContext';
 const Home = () => {
     const { products, loading } = useProducts();
     const featuredProducts = products.slice(0, 8);
+
+    // Calculate real category counts from database
+    const categoryData = useMemo(() => {
+        const categories = [
+            { name: 'Headlights', icon: '💡' },
+            { name: 'Brakes', icon: '⚡' },
+            { name: 'Engine', icon: '🔧' },
+            { name: 'Body Parts', icon: '🛡️' },
+            { name: 'Transmission', icon: '⚙️' },
+            { name: 'Exhaust', icon: '🔊' },
+            { name: 'Handlebars', icon: '🎯' },
+            { name: 'Tools', icon: '🔨' },
+            { name: 'Mirrors', icon: '🪞' },
+            { name: 'Electronics', icon: '🔌' },
+            { name: 'Suspension', icon: '🏍️' },
+            { name: 'Tires', icon: '⭕' }
+        ];
+
+        const categoriesWithCounts = categories.map(cat => {
+            const count = products.filter(product => 
+                product.category && product.category.toLowerCase() === cat.name.toLowerCase()
+            ).length;
+            
+            return {
+                ...cat,
+                count,
+                displayCount: count > 0 ? `${count}` : '0'
+            };
+        });
+
+        // Show categories with products first, then fill up to 8 with popular categories
+        const categoriesWithProducts = categoriesWithCounts.filter(cat => cat.count > 0);
+        const categoriesWithoutProducts = categoriesWithCounts.filter(cat => cat.count === 0);
+        
+        // Combine and limit to 8 categories
+        const finalCategories = [...categoriesWithProducts, ...categoriesWithoutProducts].slice(0, 8);
+        
+        return finalCategories;
+    }, [products]);
 
     const fadeInUp = {
         initial: { opacity: 0, y: 20 },
@@ -80,7 +119,7 @@ const Home = () => {
                             className="relative hidden lg:block"
                         >
                             <div className="relative z-10 transform hover:scale-105 transition-transform duration-500">
-                                <img src="https://images.unsplash.com/photo-1558981403-c5f9899a28bc?q=80&w=2070&auto=format&fit=crop" alt="Premium Bike Parts" className="w-full h-auto object-cover rounded-3xl shadow-2xl hero-image" />
+                                <img src="/royal-enfield-final.png" alt="Royal Enfield LED Headlight - Premium Heritage Design" className="w-full h-auto object-cover rounded-3xl shadow-2xl hero-image" />
 
                                 {/* Floating Cards */}
                                 <motion.div
@@ -95,6 +134,24 @@ const Home = () => {
                                         <div>
                                             <div className="text-sm text-gray-500">Top Rated</div>
                                             <div className="font-bold text-slate-900">4.9/5 Stars</div>
+                                        </div>
+                                    </div>
+                                </motion.div>
+
+                                {/* Mechanic Approved Card - Left Bottom */}
+                                <motion.div
+                                    animate={{ y: [0, -8, 0] }}
+                                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
+                                    className="absolute -bottom-6 -left-6 glass-panel p-4 rounded-2xl"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 flex items-center justify-center">
+                                            <Shield className="w-6 h-6 text-white" />
+                                        </div>
+                                        <div>
+                                            <div className="text-sm text-gray-500">Mechanic Approved</div>
+                                            <div className="font-bold text-slate-900">100% Quality</div>
+                                            <div className="text-xs text-amber-600 font-medium">Tested Parts</div>
                                         </div>
                                     </div>
                                 </motion.div>
@@ -113,56 +170,94 @@ const Home = () => {
                     </motion.div>
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-                        {[
-                            { name: 'Headlights', icon: '💡', count: '25+' },
-                            { name: 'Brakes', icon: '⚡', count: '18+' },
-                            { name: 'Engine', icon: '🔧', count: '32+' },
-                            { name: 'Body Parts', icon: '🛡️', count: '28+' },
-                            { name: 'Transmission', icon: '⚙️', count: '15+' },
-                            { name: 'Exhaust', icon: '🔊', count: '12+' },
-                            { name: 'Handlebars', icon: '🎯', count: '22+' },
-                            { name: 'Tools', icon: '🔨', count: '8+' }
-                        ].map((cat, idx) => (
-                            <motion.div
-                                key={idx}
-                                initial={{ opacity: 0, y: 20 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                viewport={{ once: true }}
-                                transition={{ delay: idx * 0.1 }}
-                                className="category-card p-8 text-center cursor-pointer group"
+                        {categoryData.map((cat, idx) => (
+                            <Link
+                                key={cat.name}
+                                to={`/products?category=${cat.name}`}
+                                className="block"
                             >
-                                <div className="text-5xl mb-6 group-hover:scale-110 transition-transform duration-300">{cat.icon}</div>
-                                <h3 className="font-bold text-slate-900 mb-2 text-xl">{cat.name}</h3>
-                                <div className="inline-flex items-center text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full">{cat.count} Products</div>
-                            </motion.div>
+                                <motion.div
+                                    initial={{ opacity: 0, y: 20 }}
+                                    whileInView={{ opacity: 1, y: 0 }}
+                                    viewport={{ once: true }}
+                                    transition={{ delay: idx * 0.1 }}
+                                    className="category-card p-8 text-center cursor-pointer group hover:shadow-xl transition-all duration-300 hover:-translate-y-2"
+                                >
+                                    <div className="text-5xl mb-6 group-hover:scale-110 transition-transform duration-300">{cat.icon}</div>
+                                    <h3 className="font-bold text-slate-900 mb-2 text-xl group-hover:text-amber-600 transition-colors">{cat.name}</h3>
+                                    <div className="inline-flex items-center text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full group-hover:bg-amber-100">
+                                        {cat.displayCount} Product{cat.count !== 1 ? 's' : ''}
+                                    </div>
+                                </motion.div>
+                            </Link>
                         ))}
                     </div>
+
+                    {/* Show message if no categories have products */}
+                    {!loading && categoryData.length === 0 && (
+                        <div className="text-center py-12">
+                            <p className="text-gray-500 text-lg">No product categories available yet.</p>
+                            <Link 
+                                to="/admin" 
+                                className="inline-block mt-4 bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
+                            >
+                                Add Products
+                            </Link>
+                        </div>
+                    )}
                 </div>
             </section>
 
             {/* Featured Products */}
             <section id="featured" className="py-16 bg-white">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <motion.div {...fadeInUp} className="text-center mb-12">
-                        <h2 className="text-4xl font-bold hero-text text-gray-900 mb-4">Featured Products</h2>
-                        <p className="text-gray-600 max-w-2xl mx-auto text-lg">Handpicked selection of our best-selling and most popular items.</p>
+                    <motion.div {...fadeInUp} className="text-center mb-16">
+                        <h2 className="text-4xl font-bold hero-text text-slate-900 mb-4">Featured Products</h2>
+                        <p className="text-slate-600 max-w-2xl mx-auto text-lg">Handpicked selection of our best-selling motorcycle parts and accessories.</p>
                     </motion.div>
 
                     {loading ? (
-                        <div className="text-center py-12">Loading products...</div>
+                        <div className="text-center py-12">
+                            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500"></div>
+                            <p className="mt-4 text-gray-500">Loading products...</p>
+                        </div>
+                    ) : featuredProducts.length > 0 ? (
+                        <>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                                {featuredProducts.slice(0, 8).map((product, index) => (
+                                    <motion.div
+                                        key={product.id}
+                                        initial={{ opacity: 0, y: 20 }}
+                                        whileInView={{ opacity: 1, y: 0 }}
+                                        viewport={{ once: true }}
+                                        transition={{ delay: index * 0.1 }}
+                                    >
+                                        <ProductCard product={product} />
+                                    </motion.div>
+                                ))}
+                            </div>
+
+                            <div className="text-center mt-16">
+                                <Link to="/products" className="inline-flex items-center bg-amber-500 hover:bg-amber-600 text-white font-semibold py-4 px-8 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg">
+                                    View All Products <ArrowRight className="ml-2 w-5 h-5" />
+                                </Link>
+                            </div>
+                        </>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                            {featuredProducts.map((product) => (
-                                <ProductCard key={product.id} product={product} />
-                            ))}
+                        <div className="text-center py-12">
+                            <div className="w-24 h-24 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
+                                <ShoppingBag className="w-12 h-12 text-gray-400" />
+                            </div>
+                            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Products Available</h3>
+                            <p className="text-gray-500 mb-6">Add some products to showcase them here.</p>
+                            <Link 
+                                to="/admin" 
+                                className="inline-block bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+                            >
+                                Add Products
+                            </Link>
                         </div>
                     )}
-
-                    <div className="text-center mt-12">
-                        <Link to="/products" className="inline-flex items-center bg-amber-500 hover:bg-amber-600 text-white font-semibold py-4 px-8 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg">
-                            View All Products <ArrowRight className="ml-2 w-5 h-5" />
-                        </Link>
-                    </div>
                 </div>
             </section>
 

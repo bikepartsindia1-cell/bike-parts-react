@@ -5,17 +5,74 @@ import { useAuth } from '../context/AuthContext';
 
 const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
     const [view, setView] = useState(initialView);
-    const { signIn, signUp } = useAuth();
+    const { signIn, signUp, resendVerificationEmail } = useAuth();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Form states
+    // Form states - declare before useEffect
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [phone, setPhone] = useState('');
+    const [phoneError, setPhoneError] = useState('');
+    const [emailVerificationError, setEmailVerificationError] = useState(false);
+    const [resendingEmail, setResendingEmail] = useState(false);
+
+    // Update view when initialView changes
+    React.useEffect(() => {
+        setView(initialView);
+    }, [initialView]);
+
+    // Reset form state when modal is closed or view changes
+    React.useEffect(() => {
+        if (!isOpen) {
+            setError('');
+            setEmail('');
+            setPassword('');
+            setFirstName('');
+            setLastName('');
+            setPhone('');
+            setPhoneError('');
+            setLoading(false);
+        }
+    }, [isOpen]);
+
+    // Also reset when switching between login/register
+    React.useEffect(() => {
+        setError('');
+        setEmail('');
+        setPassword('');
+        setFirstName('');
+        setLastName('');
+        setPhone('');
+        setPhoneError('');
+        setEmailVerificationError(false);
+        setResendingEmail(false);
+    }, [view]);
+
+    // Handle phone number input - only digits, validate 10 digits
+    const handlePhoneChange = (e) => {
+        let value = e.target.value;
+        
+        // Remove all non-digit characters
+        const digits = value.replace(/\D/g, '');
+        
+        // Limit to 10 digits maximum
+        const phoneDigits = digits.slice(0, 10);
+        
+        // Validate phone number length
+        if (phoneDigits.length > 0 && phoneDigits.length < 10) {
+            setPhoneError('Phone number must be 10 digits');
+        } else if (phoneDigits.length === 10) {
+            setPhoneError('');
+        } else {
+            setPhoneError('');
+        }
+        
+        setPhone(phoneDigits);
+    };
 
     if (!isOpen) return null;
 
@@ -27,7 +84,19 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
         try {
             if (view === 'login') {
                 const { data, error } = await signIn(email, password);
-                if (error) throw error;
+                
+                if (error) {
+                    // Check if it's an email verification error
+                    if (error.type === 'email_not_verified') {
+                        setEmailVerificationError(true);
+                        setError(error.message);
+                    } else {
+                        setEmailVerificationError(false);
+                        setError(error.message);
+                    }
+                    setLoading(false);
+                    return;
+                }
 
                 // Check if user is admin and redirect to admin dashboard
                 if (data?.user?.email === 'admin@bikeparts.com' || data?.user?.user_metadata?.role === 'admin') {
@@ -35,24 +104,67 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
                 }
                 // Modal closes automatically via AuthContext
             } else {
-                const { error } = await signUp(email, password, {
+                // Validate phone number before signup
+                if (phone.length !== 10) {
+                    setError('Please enter a valid 10-digit phone number');
+                    setLoading(false);
+                    return;
+                }
+
+                const { data, error } = await signUp(email, password, {
                     first_name: firstName,
                     last_name: lastName,
-                    phone: phone
+                    phone: `+91${phone}` // Store as +91XXXXXXXXXX
                 });
-                if (error) throw error;
+                
+                if (error) {
+                    setError(error.message);
+                    setLoading(false);
+                    return;
+                }
+
+                // Show success message for signup
+                if (data?.user && !data.user.email_confirmed_at) {
+                    setError('Account created successfully! Please check your email and click the verification link before logging in.');
+                    setLoading(false);
+                    return;
+                }
+                
                 // Modal closes automatically via AuthContext
             }
         } catch (err) {
             setError(err.message || 'An error occurred');
+            setEmailVerificationError(false);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleResendVerification = async () => {
+        if (!email) {
+            setError('Please enter your email address first');
+            return;
+        }
+
+        setResendingEmail(true);
+        try {
+            const result = await resendVerificationEmail(email);
+            if (result.success) {
+                setError('Verification email sent! Please check your inbox and spam folder.');
+            } else {
+                setError(result.error || 'Failed to send verification email');
+            }
+        } catch (error) {
+            setError('Failed to send verification email');
+        } finally {
+            setResendingEmail(false);
         }
     };
 
     const toggleView = () => {
         setView(view === 'login' ? 'register' : 'login');
         setError('');
+        setEmailVerificationError(false);
     };
 
     return (
@@ -77,8 +189,24 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
                 </div>
 
                 {error && (
-                    <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-6 text-sm">
+                    <div className={`p-3 rounded-lg mb-6 text-sm ${
+                        error.includes('successfully') || error.includes('Verification email sent') 
+                            ? 'bg-green-50 text-green-600' 
+                            : 'bg-red-50 text-red-600'
+                    }`}>
                         {error}
+                        {emailVerificationError && view === 'login' && (
+                            <div className="mt-3">
+                                <button
+                                    type="button"
+                                    onClick={handleResendVerification}
+                                    disabled={resendingEmail}
+                                    className="bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                                >
+                                    {resendingEmail ? 'Sending...' : 'Resend Verification Email'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -113,6 +241,7 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
                                         required
                                         value={firstName}
                                         onChange={(e) => setFirstName(e.target.value)}
+                                        placeholder="Rahul"
                                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
                                     />
                                 </div>
@@ -126,6 +255,7 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
                                         required
                                         value={lastName}
                                         onChange={(e) => setLastName(e.target.value)}
+                                        placeholder="Sharma"
                                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
                                     />
                                 </div>
@@ -142,7 +272,7 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
                                 required
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                placeholder="Enter your email"
+                                placeholder="rahul.sharma@gmail.com"
                                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
                             />
                         </div>
@@ -157,10 +287,21 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }) => {
                                     type="tel"
                                     required
                                     value={phone}
-                                    onChange={(e) => setPhone(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                    onChange={handlePhoneChange}
+                                    placeholder="9876543210"
+                                    autoComplete="off"
+                                    className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 ${
+                                        phoneError 
+                                            ? 'border-red-300 focus:ring-red-500' 
+                                            : 'border-gray-300 focus:ring-amber-500'
+                                    }`}
+                                    maxLength="10" // 10 digits only
                                 />
                             </div>
+                            {phoneError && (
+                                <p className="text-red-500 text-xs mt-1">{phoneError}</p>
+                            )}
+                            <p className="text-gray-500 text-xs mt-1">Enter 10-digit mobile number</p>
                         </div>
                     )}
 
