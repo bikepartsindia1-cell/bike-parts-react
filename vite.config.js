@@ -10,7 +10,7 @@ export default defineConfig(({ command, mode }) => {
   return {
     plugins: [react()],
     define: {
-      // Explicitly define Supabase environment variables for Netlify deployment
+      // Explicitly define Supabase environment variables for deployment
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(
         env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL
       ),
@@ -20,5 +20,19 @@ export default defineConfig(({ command, mode }) => {
     },
     // Ensure environment variables are available during build
     envPrefix: 'VITE_',
+    // Preview server configuration for production hosting
+    preview: {
+      allowedHosts: [
+        'bike-parts-react.onrender.com',
+        '.onrender.com', // Allow all Render subdomains
+        'localhost',
+        '127.0.0.1'
+      ]
+    },
+    // Server configuration for development
+    server: {
+      host: true, // Allow external connections
+      port: 5173
+    }
   }
 })
